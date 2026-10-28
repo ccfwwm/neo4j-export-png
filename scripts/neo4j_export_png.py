@@ -201,8 +201,10 @@ class Neo4jExporter:
     def start(self) -> None:
         if sync_playwright is None:
             raise RuntimeError(
-                "缺少 Playwright。请先执行: python -m pip install playwright && "
-                "python -m playwright install chromium"
+                "缺少 Playwright，还没有配好运行环境。先跑一次：\n"
+                "  python scripts/setup_env.py --install --verify\n"
+                "它会自动换国内镜像装 playwright/pillow 与 Chromium 并验证；"
+                "也可手动执行: python -m pip install playwright && python -m playwright install chromium"
             )
         self.pw_ctx = sync_playwright().start()
         self.browser = self.pw_ctx.chromium.launch(headless=self.headless)
