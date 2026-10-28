@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## v1.1.0 — 2026-10-28
+
+环境自愈：AI 遇到缺依赖时能自己配好，不用用户手动折腾。
+
+### 新增
+
+- **`scripts/setup_env.py`**：依赖体检 / 自动安装 / 启动验证三合一
+  - 体检项：Python ≥ 3.10、`playwright`、`PIL`（pillow 的导入名，不按包名判存在）、Chromium revision
+  - `--install` 只补缺失项，pip 按 aliyun → tencent → tuna → 官方源逐个重试；Chromium 走 `cdn.npmmirror.com/binaries/playwright`，失败回落官方 CDN
+  - `--verify` 真实启动一次无头 Chromium，证明「装上了」且「能用」
+  - 退出码 `0` 可用 / `3` 有缺失 / `4` 安装失败或 Python 过低；`--json` 机器可读
+- **`references/environment.md`**：依赖矩阵、pip 与 Playwright 镜像实测表、代理与企业内网、完全离线安装、常见安装失败对照表
+- **`scripts/test_setup_env.py`**：5 项离线自测（包名映射、体检结构、镜像配置、浏览器判定、`PLAYWRIGHT_BROWSERS_PATH` 生效）
+
+### 调整
+
+- **导出默认无窗口**（`headless=True`），headless shell 即可跑；新增 `--headed` 弹窗口排查登录页，`--headless` 保留兼容
+- 浏览器判定改用 `playwright install --dry-run` 取当前版本要求的目录，能识别「目录存在但 revision 不匹配」与「只有 headless shell、没有完整 chromium」
+- SKILL.md 增加「环境准备（缺依赖时自己装）」一节，标准流程第 1 步改为环境自检
+
+### 实测
+
+Windows 11 + Python 3.13：`--install` 从 npmmirror 拉取 chromium-1248 约 40 秒完成，`--verify` 启动成功，退出码 0。
+
 ## v1.0.0 — 2026-10-28
 
 首个 WorkBuddy 开放平台版本，基于原 `neo4j-export-png` 技能重构。

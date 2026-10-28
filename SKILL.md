@@ -3,10 +3,10 @@ name: neo4j-export-png
 display_name: Neo4j 图谱图片导出
 display_name_en: Neo4j Graph Image Export
 description: 用 Playwright 驱动 Neo4j Browser 自动登录、切库、跑 Cypher，并把图谱批量导出为 PNG/SVG，附节点关系计数、SHA-256 与尺寸校验的审计清单。当用户要 Neo4j 图谱截图、知识图谱可视化导出、Export PNG、Export SVG、全量图谱图片、按课程或主题批量出图、图谱图片验收与断点续跑时使用。不用于改图谱数据，也不替代 Neo4j 数据校验。关键词：Neo4j、图谱导出、知识图谱图片、Browser 截图、导出 PNG、导出 SVG、批量截图、图谱可视化。
-description_zh: Neo4j 图谱图片导出：自动登录 Neo4j Browser、切换数据库、执行 Cypher，批量导出 PNG/SVG，并给出节点数、关系数、文件哈希的验收清单，支持续跑与全量显示。
+description_zh: Neo4j 图谱图片导出：自动登录 Neo4j Browser、切换数据库、执行 Cypher，批量导出 PNG/SVG，并给出节点数、关系数、文件哈希的验收清单；缺依赖时用国内镜像自动装好，支持续跑与全量显示。
 description_en: Export Neo4j Browser graph visualizations to PNG or SVG. Automates login, database switching and Cypher execution, then verifies node/relationship counts, file size and SHA-256 in a manifest, with batch runs, resume and full-graph display.
 category: 开发工具
-version: 1.0.0
+version: 1.1.0
 author: Luwen
 ---
 
@@ -67,27 +67,49 @@ author: Luwen
 - 此时把脚本给出的当前参数复述给用户，请用户提供**正确的地址 / 用户名 / 密码 / 数据库名**，改完再重试。
 - 常见判定：能打开页面但卡在登录 → 用户名或密码错；页面报 `Unauthorized` → 凭据问题；`未出现 Cypher 编辑器` → 地址对但 Browser 版本/路径异常；查询报数据库不存在 → 库名错。
 
-## 环境准备
+## 环境准备（缺依赖时自己装，不要让用户手动折腾）
+
+一条命令搞定体检、安装、验证：
 
 ```bash
-python -m pip install playwright pillow
-python -m playwright install chromium
-
-export NEO4J_BROWSER_URL='http://127.0.0.1:7474'
-export NEO4J_USER='neo4j'
-export NEO4J_PASSWORD='<本机密码>'   # 由用户在自己终端里设置，不要问用户要明文密码
+python scripts/setup_env.py            # 体检：缺什么就打印可执行命令，缺失时退出码 3
+python scripts/setup_env.py --install  # 缺什么装什么：pip 与 Chromium 都自动换国内镜像重试
+python scripts/setup_env.py --verify   # 再真实启动一次无头 Chromium，确认能用
 ```
 
-Windows 下用 `$env:NEO4J_PASSWORD='...'`；macOS/Linux 用 `export`。已装 Playwright 的环境可直接复用。
+判定规则：
+
+- 退出码 `0` → 环境可用，直接进入导出。
+- 退出码 `3` → 有缺失，跑 `--install`（默认 `--mirror auto`：aliyun → tencent → tuna → 官方源；Chromium 走 `cdn.npmmirror.com/binaries/playwright`，失败再回落官方 CDN）。
+- 退出码 `4` → 安装失败或 Python 版本过低。此时读 @references/environment.md 的「代理与企业内网」「常见安装失败」两节，按现象对应处理，再向用户说明缺什么、需要什么权限（如 Linux 的 `--with-deps` 要 sudo）。
+- 用户机器已有可用 Playwright 时不要重复安装：`--install` 只补缺失项。
+
+需要手动装时的等价命令：
+
+```bash
+python -m pip install playwright pillow --index-url https://mirrors.aliyun.com/pypi/simple/
+PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright python -m playwright install chromium
+```
+
+密码与连接参数（下面这组环境变量由用户在自己终端设置，不要写进脚本或对话）：
+
+```bash
+export NEO4J_BROWSER_URL='http://127.0.0.1:7474'
+export NEO4J_USER='neo4j'
+export NEO4J_PASSWORD='<本机密码>'
+```
+
+Windows 下用 `$env:NEO4J_PASSWORD='...'`；macOS/Linux 用 `export`。Chromium 的 revision 与 `playwright` 包版本绑定，升级包后必须重装浏览器——`setup_env.py` 用 `playwright install --dry-run` 校验，能识别「目录在但版本不对」。
 
 ## 标准流程
 
-1. **确认目标**：按用户给的地址、用户名、库名（没给就用默认）先跑 `--probe` 探活，确认「要导哪张图」的 Cypher。连通性不通就先解决连接，别急着导出。
-2. **定格式**：要缩放排版、进 Word/PPT、节点多 → SVG；明确要截图/PNG 或目标系统不认 SVG → PNG；两者都要 → `both`（SVG 为原始交付，PNG 为预览）。
-3. **定规模**：能查到节点/关系总数时，填进 `expected_nodes` / `expected_relationships`，这是后面验收的唯一硬标准。
-4. **执行**：单条用命令行参数；多张用任务 JSON（结构见 @references/task-file.md）。多库任务必须逐条切库，脚本已按任务切库。
-5. **验收**：读 manifest，`status` 必须为 `PASS`、`failure_count` 为 0；逐项核对计数与哈希。不通过按 @references/troubleshooting.md 定位，必要时 `--resume` 续跑。
-6. **交付**：先给用户结论（成功几张、每张多少节点/关系、文件在哪），再给路径清单。
+1. **环境自检**：`python scripts/setup_env.py --verify` 通过再往下走；缺依赖就 `--install`，别带着缺件硬跑。
+2. **确认目标**：按用户给的地址、用户名、库名（没给就用默认）先跑 `--probe` 探活，确认「要导哪张图」的 Cypher。连通性不通就先解决连接，别急着导出。
+3. **定格式**：要缩放排版、进 Word/PPT、节点多 → SVG；明确要截图/PNG 或目标系统不认 SVG → PNG；两者都要 → `both`（SVG 为原始交付，PNG 为预览）。
+4. **定规模**：能查到节点/关系总数时，填进 `expected_nodes` / `expected_relationships`，这是后面验收的唯一硬标准。
+5. **执行**：单条用命令行参数；多张用任务 JSON（结构见 @references/task-file.md）。多库任务必须逐条切库，脚本已按任务切库。
+6. **验收**：读 manifest，`status` 必须为 `PASS`、`failure_count` 为 0；逐项核对计数与哈希。不通过按 @references/troubleshooting.md 定位，必要时 `--resume` 续跑。
+7. **交付**：先给用户结论（成功几张、每张多少节点/关系、文件在哪），再给路径清单。
 
 ## 先探活（可选但推荐）
 
@@ -165,4 +187,6 @@ PNG：
 
 - @references/task-file.md —— 批量任务字段全表、示例、截断与 manifest 说明
 - @references/troubleshooting.md —— 登录/新版旧版 Browser/导出失败/计数不符的排查路径
-- `scripts/test_export_helpers.py` —— 不连数据库即可跑的离线自测（截断检测、SVG/PNG 校验）
+- @references/environment.md —— 依赖矩阵、pip 与 Playwright 镜像、代理与离线安装、安装失败对照表
+- `scripts/setup_env.py` —— 依赖体检 / 自动安装 / 启动验证（退出码 0 可用、3 缺失、4 失败）
+- `scripts/test_export_helpers.py` —— 不连数据库即可跑的离线自测（截断检测、SVG/PNG 校验、默认值与 bolt 推导）

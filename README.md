@@ -18,6 +18,7 @@
 | 中途失败只能从头再来 | `--resume` 跳过已通过校验的文件，`--start / --limit` 只补跑失败项 |
 | 新旧版 Browser 界面不一样 | 脚本自动识别并按对应选择器登录、切库、导出 |
 | 透明背景进 Word 变黑块 | 自动合成白底 |
+| 换台机器缺 playwright / 浏览器，装不动 | `setup_env.py --install` 自动换国内镜像装好并验证 |
 | 抽样的图被当成全量图交付 | `LIMIT` / `head()` / `[0..n]` 默认拒绝，需显式放行 |
 
 ---
@@ -35,6 +36,25 @@ Neo4j Browser
 ```
 
 四道门禁：密码只走环境变量；截断查询默认拒绝；导出必须过校验；manifest 非 `PASS` 即退出码 1。
+
+---
+
+## 环境自检（缺依赖自动装）
+
+```bash
+python scripts/setup_env.py            # 体检：缺什么打印什么，退出码 3 = 有缺失
+python scripts/setup_env.py --install  # 自动装：pip 与 Chromium 都走国内镜像，失败逐个回落
+python scripts/setup_env.py --verify   # 装完真实启动一次无头 Chromium
+```
+
+- pip 镜像顺序：aliyun → tencent → tuna → 官方 PyPI
+- Chromium 二进制：`cdn.npmmirror.com/binaries/playwright` → 官方 CDN
+- 退出码：`0` 可用 / `3` 有缺失 / `4` 安装失败或 Python < 3.10
+- 只补缺失项，不重装已装好的；`--mirror global` 强制走官方源
+- Chromium revision 与 playwright 版本绑定，用 `playwright install --dry-run` 校验，能识别「目录在但版本不对」
+- 导出默认无窗口运行（headless shell 够用）；需要看界面排查登录页时加 `--headed`
+
+镜像细节、代理、离线安装与失败对照表见 `references/environment.md`。
 
 ---
 
@@ -113,10 +133,13 @@ neo4j-export-png/
 ├── SKILL.md                        # 技能定义（平台解析入口）
 ├── scripts/
 │   ├── neo4j_export_png.py         # 主脚本：登录 / 切库 / 查询 / 导出 / 校验 / manifest
-│   └── test_export_helpers.py      # 离线自测，不连数据库
+│   ├── setup_env.py                # 依赖体检 / 自动安装 / 启动验证
+│   ├── test_export_helpers.py      # 离线自测（导出逻辑），不连数据库
+│   └── test_setup_env.py           # 离线自测（环境判定），不联网
 ├── references/
 │   ├── task-file.md                # 批量任务字段全表与示例
-│   └── troubleshooting.md          # 按现象定位的排查路径
+│   ├── troubleshooting.md          # 按现象定位的排查路径
+│   └── environment.md              # 依赖矩阵 / 镜像 / 代理 / 离线安装
 ├── templates/
 │   └── tasks.example.json          # 批量任务模板
 └── assets/
@@ -130,10 +153,12 @@ neo4j-export-png/
 ## 自测
 
 ```bash
-python scripts/test_export_helpers.py
+python scripts/setup_env.py --verify     # 环境
+python scripts/test_export_helpers.py    # 导出逻辑（7 项）
+python scripts/test_setup_env.py         # 环境判定（5 项）
 ```
 
-覆盖截断检测、SVG 计数校验、PNG 尺寸与方差校验、输出路径推导，无需 Neo4j 实例。
+覆盖截断检测、SVG 计数校验、PNG 尺寸与方差校验、输出路径推导、默认连接参数与 bolt 推导、镜像配置与浏览器判定——全部离线，不需要 Neo4j 实例、不联网。
 
 ---
 

@@ -142,7 +142,7 @@ class Neo4jExporter:
     """Automate Neo4j Browser graph export with legacy/new Browser support."""
 
     def __init__(self, url=DEFAULT_URL, user=DEFAULT_USER, password="",
-                 headless=False, wait_seconds=3,
+                 headless=True, wait_seconds=3,
                  browser_limit=DEFAULT_BROWSER_LIMIT):
         self.url = (url or DEFAULT_URL).rstrip("/")
         self.user = user or DEFAULT_USER
@@ -683,7 +683,10 @@ def main() -> None:
     parser.add_argument("--format", choices=["png", "svg", "both"], default="png")
     parser.add_argument("--expected-nodes", type=int)
     parser.add_argument("--expected-relationships", type=int)
-    parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--headless", action="store_true",
+                        help="无窗口运行（默认行为，保留以兼容旧命令）")
+    parser.add_argument("--headed", action="store_true",
+                        help="弹出可见浏览器窗口，便于人工排查登录页；需要完整 chromium")
     parser.add_argument("--wait", type=int, default=3)
     parser.add_argument("--browser-limit", type=int, default=DEFAULT_BROWSER_LIMIT)
     parser.add_argument("--allow-truncated-query", action="store_true")
@@ -714,7 +717,8 @@ def main() -> None:
     ).resolve()
     exporter = Neo4jExporter(
         config.get("url", args.url), config.get("user", args.user), args.password,
-        args.headless, args.wait, config.get("browser_limit", args.browser_limit),
+        headless=not args.headed, wait_seconds=args.wait,
+        browser_limit=config.get("browser_limit", args.browser_limit),
     )
     results = []
     try:
