@@ -1,0 +1,30 @@
+{
+  "url": "http://127.0.0.1:7474",
+  "user": "neo4j",
+  "format": "svg",
+  "browser_limit": 1000000,
+  "manifest": "./images/neo4j_export_manifest.json",
+  "resume": false,
+  "allow_truncated_query": false,
+  "style": "node { diameter: 58px; caption: '{name}'; font-size: 10px; } relationship { caption: '<type>'; font-size: 8px; }",
+  "tasks": [
+    {
+      "name": "全量图谱",
+      "database": "neo4j",
+      "cypher": "MATCH p=(n)-[r]->(m) RETURN p",
+      "output": "./images/full-graph.svg",
+      "format": "svg",
+      "expected_nodes": 76,
+      "expected_relationships": 136,
+      "wait_seconds": 10
+    },
+    {
+      "name": "子图双格式",
+      "database": "neo4j",
+      "cypher": "MATCH p=(n:Topic)-[r]->(m) WHERE n.name = 'example' RETURN p",
+      "output": "./images/topic-graph",
+      "format": "both",
+      "wait_seconds": 8
+    }
+  ]
+}

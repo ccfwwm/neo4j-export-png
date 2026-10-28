@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行产物（导出的图与审计清单不入库）
+images/
+out/
+output/
+neo4j_export_manifest.json
+*.svg
+*.zip
+!dist/*.zip
+
+# 任务文件可能含内网地址与库名，按需保留模板即可
+tasks.json
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# 本地配置
+.env
+config.local.json
