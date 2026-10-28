@@ -78,7 +78,7 @@ def expected_chromium_dirs() -> list[Path]:
     """用 playwright 自己的 dry-run 拿到当前版本要求的安装目录，避免版本不匹配误判。"""
     if not module_available("playwright"):
         return []
-    code, out = run(
+    code, out = run_cmd(
         [sys.executable, "-m", "playwright", "install", "--dry-run", "chromium"], timeout=120
     )
     if code != 0:
@@ -124,7 +124,7 @@ def module_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
-def run(cmd: list[str], timeout: int, env: dict[str, str] | None = None) -> tuple[int, str]:
+def run_cmd(cmd: list[str], timeout: int, env: dict[str, str] | None = None) -> tuple[int, str]:
     merged = os.environ.copy()
     if env:
         merged.update(env)
@@ -197,7 +197,7 @@ def print_report(report: dict) -> None:
 def pip_install(mirrors: list[tuple[str, str]], packages: list[str]) -> bool:
     for name, index in mirrors:
         print(f"[pip] 使用镜像 {name}: {index}")
-        code, out = run(
+        code, out = run_cmd(
             [sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
              "--index-url", index, "--timeout", "30", *packages],
             timeout=900,
@@ -217,7 +217,7 @@ def install_chromium(mirrors: list[tuple[str, str]]) -> bool:
         if host:
             env["PLAYWRIGHT_DOWNLOAD_HOST"] = host
         print(f"[chromium] 来源 {label}" + (f": {host}" if host else "（官方 CDN）"))
-        code, out = run(
+        code, out = run_cmd(
             [sys.executable, "-m", "playwright", "install", "chromium"],
             timeout=1800, env=env,
         )
@@ -244,10 +244,69 @@ def verify() -> bool:
         "    print('playwright-ok', page.title() == '')\n"
         "    b.close()\n"
     )
-    rc, out = run([sys.executable, "-c", code], timeout=180)
+    rc, out = run_cmd([sys.executable, "-c", code], timeout=180)
     ok = rc == 0 and "playwright-ok" in out
     print("[verify] " + ("启动 Chromium 成功，Playwright 可用" if ok else f"启动失败（exit={rc}）：\n{out.strip()[-500:]}"))
     return ok
+
+
+def run(args) -> tuple[dict, int]:
+    """执行体检/安装/验证，回 (最终报告, 退出码)。"""
+    report = check()
+    if not args.json:
+        print_report(report)
+
+    if not report["python_ok"]:
+        if not args.json:
+            print(f"\n[阻断] 需要 Python >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]}，当前 {report['python']}。"
+                  "请先装新版 Python 再回来跑本脚本。")
+        return report, 4
+
+    ok = not report["missing"]
+    if not ok and args.install:
+        mirrors = (PYPI_MIRRORS_CN + [PYPI_OFFICIAL]) if args.mirror != "global" else [PYPI_OFFICIAL]
+        pw_mirrors = (PLAYWRIGHT_MIRRORS + [PLAYWRIGHT_OFFICIAL]) if args.mirror != "global" else [PLAYWRIGHT_OFFICIAL]
+
+        # 第一步：装 Python 包；装完立刻复检，浏览器判定要等 playwright 到位才准
+        need_pkgs = [p for p, mod in PACKAGE_MODULES.items() if not module_available(mod)]
+        if need_pkgs:
+            if not pip_install(mirrors, need_pkgs):
+                if not args.json:
+                    print("\n[失败] pip 安装未成功。请检查网络/代理，或手动执行：\n  "
+                          + "\n  ".join(report["commands"]))
+                report["error"] = "pip-install-failed"
+                return report, 4
+            report = check()
+
+        # 第二步：用 playwright 自己的版本要求判定并安装浏览器
+        installed, detail = chromium_installed()
+        if not installed:
+            if not args.json:
+                print(f"[chromium] {detail}")
+            if not install_chromium(pw_mirrors):
+                if not args.json:
+                    print("\n[失败] Chromium 安装未成功，见 references/environment.md 的「镜像与代理」一节。")
+                report["error"] = "chromium-install-failed"
+                return report, 4
+
+        report = check()
+        ok = not report["missing"]
+        if not args.json:
+            print("\n===== 安装后复检 =====")
+            print_report(report)
+
+    if args.verify:
+        if not verify():
+            report["error"] = "verify-failed"
+            return report, 4
+
+    if not ok:
+        if not args.json:
+            print("\n结论: 环境未就绪（缺 " + ", ".join(report["missing"]) + "）。加 --install 可自动安装。")
+        return report, 3
+    if not args.json:
+        print("\n结论: 环境可用。")
+    return report, 0
 
 
 def main() -> int:
@@ -259,52 +318,12 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="输出机器可读结果")
     args = parser.parse_args()
 
-    report = check()
-    if not args.json:
-        print_report(report)
-
-    if report["python_ok"] is False:
-        print(f"\n[阻断] 需要 Python >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]}，当前 {report['python']}。"
-              "请先装新版 Python 再回来跑本脚本。")
-        return 4
-
-    ok = not report["missing"]
-    if not ok and args.install:
-        mirrors = (PYPI_MIRRORS_CN + [PYPI_OFFICIAL]) if args.mirror != "global" else [PYPI_OFFICIAL]
-        pw_mirrors = (PLAYWRIGHT_MIRRORS + [PLAYWRIGHT_OFFICIAL]) if args.mirror != "global" else [PLAYWRIGHT_OFFICIAL]
-
-        # 第一步：装 Python 包；装完立刻复检，浏览器判定要等 playwright 到位才准
-        need_pkgs = [p for p, mod in PACKAGE_MODULES.items() if not module_available(mod)]
-        if need_pkgs:
-            if not pip_install(mirrors, need_pkgs):
-                print("\n[失败] pip 安装未成功。请检查网络/代理，或手动执行：\n  "
-                      + "\n  ".join(report["commands"]))
-                return 4
-            report = check()
-
-        # 第二步：用 playwright 自己的版本要求判定并安装浏览器
-        installed, detail = chromium_installed()
-        if not installed:
-            print(f"[chromium] {detail}")
-            if not install_chromium(pw_mirrors):
-                print("\n[失败] Chromium 安装未成功，见 references/environment.md 的「镜像与代理」一节。")
-                return 4
-
-        report = check()
-        ok = not report["missing"]
-        print("\n===== 安装后复检 =====")
-        print_report(report)
-
-    if args.verify:
-        if not verify():
-            return 4
-
-    if not ok:
-        print("\n结论: 环境未就绪（缺 " + ", ".join(report["missing"]) + "）。加 --install 可自动安装。")
-        return 3
-    if not args.json:
-        print("\n结论: 环境可用。")
-    return 0
+    report, code = run(args)
+    if args.json:
+        report["exit_code"] = code
+        report["ok"] = code == 0
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    return code
 
 
 if __name__ == "__main__":
